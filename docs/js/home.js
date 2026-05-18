@@ -6,7 +6,7 @@
   /** @param {string} id */
   const $ = (id) => document.getElementById(id);
 
-  /** Full dataset after fetch; each row may gain `.industry` from optional map. */
+  /** Full dataset after fetch; `.industry` comes from non_dmarc.json when set in companies.json. */
   let data = [];
   /** Subset after search/filter/sort; used for pagination and export. */
   let filtered = [];
@@ -61,18 +61,8 @@
       return;
     }
 
-    /**
-     * Optional `window.__industryMap` from HTML can map domain → industry label.
-     * @param {{ domain?: string }} d
-     */
-    function inferIndustry(d) {
-      const u =
-        window.__industryMap && window.__industryMap[(d.domain || "").toLowerCase()];
-      if (u) return u;
-      return "";
-    }
     data.forEach((d) => {
-      d.industry = inferIndustry(d);
+      d.industry = d.industry ? String(d.industry).trim() : "";
     });
 
     /* Summary stats in the header */
@@ -98,7 +88,7 @@
       sel.appendChild(o);
     });
 
-    /* Industry dropdown from inferred labels + “unclassified” sentinel */
+    /* Industry dropdown from file-backed labels + “unclassified” sentinel */
     const indCounts = {};
     data.forEach((d) => {
       if (d.industry) indCounts[d.industry] = (indCounts[d.industry] || 0) + 1;
@@ -112,9 +102,10 @@
         o.textContent = `${t}  (${n})`;
         indSel.appendChild(o);
       });
+    const unclassifiedCount = data.filter((d) => !d.industry).length;
     const oU = document.createElement("option");
     oU.value = "__unclassified__";
-    oU.textContent = "(unclassified)";
+    oU.textContent = `(unclassified)  (${unclassifiedCount.toLocaleString()})`;
     indSel.appendChild(oU);
 
     /**
