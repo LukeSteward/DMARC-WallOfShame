@@ -30,16 +30,49 @@
   setTheme(localStorage.getItem("cn_theme") || "dark");
   themeBtn.onclick = () => setTheme(document.body.dataset.theme === "dark" ? "light" : "dark");
 
+  /* ---------- Fake CLI session: timed lines for atmosphere ---------- */
+  const sessionEl = $("session");
+  const lines = [
+    { txt: '<span class="pmt">$</span> ./audit.sh --scope global --policy missing,none', delay: 0 },
+    { txt: '<span class="ok">[ok]</span> connecting to dns resolvers …', delay: 280 },
+    { txt: '<span class="ok">[ok]</span> querying _dmarc.* TXT records', delay: 280 },
+    { txt: '<span class="hl">[!!]</span> domains with no DMARC record detected', delay: 320 },
+    { txt: '<span class="wn">[!]</span> domains with p=none policy detected', delay: 280 },
+    { txt: '<span class="ok">[ok]</span> stream open · <span class="cursor"></span>', delay: 280, keepCursor: true },
+  ];
+  let i = 0;
+  function nextLine() {
+    if (i >= lines.length) return;
+    const ln = document.createElement("span");
+    ln.className = "ln";
+    ln.innerHTML = lines[i].txt;
+    sessionEl.appendChild(ln);
+    sessionEl.querySelectorAll(".ln:not(:last-child) .cursor").forEach((n) => n.remove());
+    i++;
+    if (i < lines.length) setTimeout(nextLine, lines[i].delay);
+  }
+  setTimeout(nextLine, 200);
+
   (async () => {
     try {
       data = await window.fetchDmarcData();
     } catch (e) {
-      $("list").innerHTML = '<tr><td class="empty" colspan="6">connection error · retry</td></tr>';
+      $("list").innerHTML = '<div class="list-empty">connection error · retry</div>';
       return;
     }
 
+    /**
+     * Optional `window.__industryMap` from HTML can map domain → industry label.
+     * @param {{ domain?: string }} d
+     */
+    function inferIndustry(d) {
+      const u =
+        window.__industryMap && window.__industryMap[(d.domain || "").toLowerCase()];
+      if (u) return u;
+      return "";
+    }
     data.forEach((d) => {
-      d.industry = d.industry || "";
+      d.industry = inferIndustry(d);
     });
 
     /* Summary stats in the header */
@@ -125,10 +158,20 @@
       );
     }
 
+    /** Keep results header in view after the list shrinks (e.g. search). */
+    function scrollResultsIntoView() {
+      const anchor = document.querySelector(".results");
+      if (!anchor) return;
+      const top = anchor.getBoundingClientRect().top;
+      if (top < 0 || top > window.innerHeight * 0.35) {
+        anchor.scrollIntoView({ block: "start" });
+      }
+    }
+
     /**
      * Runs compute(), updates pager UI, renders current page of rows into `#list`.
      */
-    function render() {
+    function render(opts) {
       compute();
       const total = filtered.length;
       const pages = Math.max(1, Math.ceil(total / PAGE));
@@ -138,23 +181,25 @@
       $("resultCount").textContent = total.toLocaleString() + " match" + (total === 1 ? "" : "es");
       $("pageLabel").textContent = `page ${state.page} / ${pages}`;
       if (!slice.length) {
-        $("list").innerHTML = '<tr><td class="empty" colspan="6">// no matches</td></tr>';
+        $("list").innerHTML = '<div class="list-empty">// no matches</div>';
+        if (opts && opts.scroll) scrollResultsIntoView();
         return;
       }
       $("list").innerHTML = slice
         .map((d) => {
           const cls = d.status === "no_dmarc" ? "no" : "pn";
-          const indCls = d.industry ? "" : "empty";
-          return `<tr class="row">
-        <td class="nm">${escapeHtml(d.name || "")}</td>
-        <td class="dm">${escapeHtml(d.domain || "")}</td>
-        <td class="tld">${window.tldOf(d.domain)}</td>
-        <td class="ind ${indCls}">${escapeHtml(d.industry || "")}</td>
-        <td><span class="st ${cls}">${cls === "no" ? "NO RECORD" : "p=none"}</span></td>
-        <td class="ts">${window.formatDate(d.last_checked)}</td>
-      </tr>`;
+          const indCls = d.industry ? "" : "is-empty";
+          return `<div class="row">
+        <div class="nm">${escapeHtml(d.name || "")}</div>
+        <div class="dm">${escapeHtml(d.domain || "")}</div>
+        <div class="tld">${window.tldOf(d.domain)}</div>
+        <div class="ind ${indCls}">${escapeHtml(d.industry || "")}</div>
+        <div><span class="st ${cls}">${cls === "no" ? "NO RECORD" : "p=none"}</span></div>
+        <div class="ts">${window.formatDate(d.last_checked)}</div>
+      </div>`;
         })
         .join("");
+      if (opts && opts.scroll) scrollResultsIntoView();
     }
 
     /* Collapsible filter panel + badge when non-default filters active */
@@ -172,7 +217,7 @@
     $("q").addEventListener("input", (e) => {
       state.q = e.target.value;
       state.page = 1;
-      render();
+      render({ scroll: true });
     });
     document.querySelectorAll("#statusSeg button").forEach((b) => {
       b.onclick = () => {
@@ -180,20 +225,20 @@
         b.classList.add("on");
         state.status = b.dataset.v;
         state.page = 1;
-        render();
+        render({ scroll: true });
         updateFilterBadge();
       };
     });
     $("tldSel").onchange = (e) => {
       state.tld = e.target.value;
       state.page = 1;
-      render();
+      render({ scroll: true });
       updateFilterBadge();
     };
     $("indSel").onchange = (e) => {
       state.industry = e.target.value;
       state.page = 1;
-      render();
+      render({ scroll: true });
       updateFilterBadge();
     };
     $("sortSel").onchange = (e) => {
